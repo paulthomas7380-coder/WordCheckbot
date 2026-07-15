@@ -4,6 +4,8 @@ print("Starting WordCheck Bot...")
 
 import logging
 import html
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -22,6 +24,25 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Simple HTTP server for health checks
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+def run_health_server():
+    try:
+        server = HTTPServer(('0.0.0.0', 8080), HealthCheckHandler)
+        logger.info("Health check server running on port 8080")
+        server.serve_forever()
+    except Exception as e:
+        logger.error(f"Health check server error: {e}")
 
 # Keyboard layouts
 def get_main_keyboard():
@@ -241,7 +262,7 @@ async def process_check(update: Update, text: str, header: str, only_spelling: b
         # Perform the check
         results = checker.full_check(text)
         
-        # Update stats - FIXED VERSION
+        # Update stats
         stats = context.bot_data.get('stats', {'total_checks': 0, 'total_errors': 0})
         stats['total_checks'] = stats.get('total_checks', 0) + 1
         stats['total_errors'] = stats.get('total_errors', 0) + results['total_issues']
@@ -311,6 +332,10 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """Start the bot."""
+    # Start health check server in a separate thread
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+    
     # Create the Application
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     
